@@ -44,6 +44,7 @@ fn main() {
         .add_plugin(PixelCameraPlugin)
         .add_startup_system(setup)
         .add_system(update_debug_text)
+        .add_system(toggle_debug)
         .add_systems(
             ((
                 update_player_movement,
@@ -64,6 +65,15 @@ fn main() {
                 .in_base_set(CoreSet::FixedUpdate),
         )
         .run();
+}
+
+fn toggle_debug(
+    keys: Res<Input<KeyCode>>,
+    mut rapier_debug_render_context: ResMut<DebugRenderContext>,
+) {
+    if keys.just_pressed(KeyCode::F1) {
+        rapier_debug_render_context.enabled = !rapier_debug_render_context.enabled;
+    }
 }
 
 fn spawn_mirrors(
@@ -91,7 +101,8 @@ fn spawn_mirrors(
                     },
                     ..default()
                 })
-                .insert(Velocity::linear(Vec2::new(0.0, 1.0)));
+                .insert(Velocity::linear(Vec2::new(0.0, 100.0)))
+                .insert(GravityScale(0.0));
         }
     }
 }
@@ -117,7 +128,7 @@ struct EnemyBundle {
     rigid_body: RigidBody,
     collider: Collider,
     enemy: Enemy,
-    lifetime: Lifetime,
+    auto_despawn: AutoDespawn,
 }
 
 #[derive(Component)]
@@ -140,7 +151,7 @@ impl Default for EnemyBundle {
             rigid_body: RigidBody::Dynamic,
             collider: Collider::ball(8.0),
             enemy: Enemy::default(),
-            lifetime: Lifetime::from_seconds(5.0),
+            auto_despawn: AutoDespawn,
         }
     }
 }
@@ -210,7 +221,7 @@ fn update_lifetimes(
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct AutoDespawn;
 
 fn despawn_outside_world(
@@ -227,6 +238,8 @@ fn despawn_outside_world(
             || position.y + half_size.y < -GAME_HEIGHT
         {
             commands.entity(entity).despawn_recursive();
+            let index = entity.index();
+            println!("Despawned entity {index}.")
         }
     }
 }
@@ -291,6 +304,17 @@ fn spawn_bullet(
             max_speed: 10.0,
         },
         Lifetime::from_seconds(5.0),
+        GravityScale(0.0),
+        Restitution {
+            coefficient: 10.0,
+            combine_rule: CoefficientCombineRule::Max,
+        },
+        Friction {
+            coefficient: 0.0,
+            combine_rule: CoefficientCombineRule::Min,
+        },
+        CollisionGroups::new(Group::GROUP_2, Group::GROUP_1),
+        LockedAxes::ROTATION_LOCKED,
     ));
 }
 
@@ -426,6 +450,14 @@ fn setup(
 
     spawn_mirror_spawner(&mut commands, Direction::Left);
     spawn_mirror_spawner(&mut commands, Direction::Right);
+
+    commands.spawn((
+        TransformBundle::from_transform(
+            Transform::from_xyz(0.0, 0.0, 0.0).with_rotation(Quat::from_rotation_z(PI / 4.)),
+        ),
+        RigidBody::Fixed,
+        Collider::cuboid(50., 50.),
+    ));
 }
 
 fn spawn_mirror_spawner(commands: &mut Commands, direction: Direction) {
